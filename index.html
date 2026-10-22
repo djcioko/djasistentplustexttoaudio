@@ -1,91 +1,164 @@
-<!DOCTYPE html>
-<html lang="ro">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DJ Assistant + TTS cu descărcare</title>
-  <style>
-    body { font-family: Arial, sans-serif; background:#111; color:#eee; margin:20px; }
-    h1, h2 { color:#1db954; }
-    .box { background:#222; padding:16px; margin:15px 0; border-radius:10px; }
-    button, select, textarea { padding:10px; margin:5px; font-size:16px; }
-    button { background:#1db954; color:white; border:0; border-radius:5px; cursor:pointer; }
-    button.stop { background:#b33; }
-    .status { color:#ccc; margin:10px 5px; }
-    textarea { width:100%; box-sizing:border-box; }
-    audio { width:100%; margin-top:10px; }
-  </style>
-</head>
 <body>
-  <h1>🎧 DJ Assistant + TTS (cu descărcare)</h1>
-  <p>Selectează intrarea audio (Serato, Foobar sau orice alt player). Pagina identifică piesa și îți face recomandări.</p>
-
-  <!-- Păstrează secțiunea de ascultare/identificare din pagina ta originală aici -->
+  <h1>🎧 DJ Assistant</h1>
 
   <div class="box">
-    <h2>Anunț vocal în română (calitate bună + descărcare)</h2>
+    <h2>Selectare microfon / interfață audio</h2>
+
+    <button id="refreshMicsBtn">Încarcă intrările audio</button>
+    <select id="micSelect">
+      <option value="">Apasă „Încarcă intrările audio”</option>
+    </select>
+
+    <button id="startMicBtn">Pornește microfonul</button>
+    <button id="stopMicBtn" class="stop" disabled>Oprește microfonul</button>
+
+    <div id="micStatus" class="status">Microfonul nu este pornit.</div>
+  </div>
+
+  <div class="box">
+    <h2>Anunț vocal în română</h2>
+
     <textarea id="announcement" rows="3">Salutare, bine ați venit la petrecere!</textarea><br>
-    
-    <button id="generateBtn">▶ Generează + Redă</button>
-    <button id="downloadBtn">⬇ Descarcă MP3</button>
-    <button id="stopBtn" class="stop">Oprește</button>
-    
+
+    <button id="generateBtn">▶ Redă anunțul</button>
+    <button id="stopSpeechBtn" class="stop">Oprește anunțul</button>
+
     <div id="speechStatus" class="status"></div>
-    <audio id="player" controls style="width:100%; display:none;"></audio>
   </div>
 
   <script>
-    let currentAudioBlob = null;
-    let currentAudioUrl = null;
+    const micSelect = document.getElementById("micSelect");
+    const micStatus = document.getElementById("micStatus");
+    const startMicBtn = document.getElementById("startMicBtn");
+    const stopMicBtn = document.getElementById("stopMicBtn");
 
-    // Folosește Edge TTS printr-un proxy public simplu sau backend-ul tău
-    // (pentru demo local poți înlocui cu un endpoint propriu)
-    async function generateTTS() {
-      const text = document.getElementById("announcement").value.trim();
-      if (!text) return;
+    let micStream = null;
 
-      const status = document.getElementById("speechStatus");
-      status.textContent = "Generez audio în română...";
-
+    async function loadMicrophones() {
       try {
-        // Exemplu cu un proxy Edge TTS public (poți înlocui cu propriul backend)
-        // Sau folosește serviciul tău de pe server
-        const response = await fetch("https://api.streamelements.com/kappa/v2/speech?voice=Alina&text=" + encodeURIComponent(text));
-        
-        if (!response.ok) throw new Error("Eroare TTS");
+        // Permisiunea este necesară pentru ca browserul să afișeze numele dispozitivelor.
+        const permissionStream = await navigator.mediaDevices.getUserMedia({
+          audio: true
+        });
 
-        currentAudioBlob = await response.blob();
-        if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-        currentAudioUrl = URL.createObjectURL(currentAudioBlob);
+        permissionStream.getTracks().forEach(track => track.stop());
 
-        const player = document.getElementById("player");
-        player.src = currentAudioUrl;
-        player.style.display = "block";
-        player.play();
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const microphones = devices.filter(device => device.kind === "audioinput");
 
-        status.textContent = "Gata! Poți reda sau descărca.";
-      } catch (e) {
-        status.textContent = "Eroare la generare. Încearcă din nou sau folosește un backend propriu.";
-        console.error(e);
+        micSelect.innerHTML = "";
+
+        if (microphones.length === 0) {
+          micSelect.innerHTML = '<option value="">Nu s-au găsit intrări audio</option>';
+          micStatus.textContent = "Nu a fost găsit niciun microfon sau dispozitiv audio.";
+          return;
+        }
+
+        microphones.forEach((mic, index) => {
+          const option = document.createElement("option");
+          option.value = mic.deviceId;
+          option.textContent = mic.label || `Intrare audio ${index + 1}`;
+          micSelect.appendChild(option);
+        });
+
+        micStatus.textContent = "Selectează o intrare audio și apasă „Pornește microfonul”.";
+      } catch (error) {
+        micStatus.textContent =
+          "Nu s-a putut accesa microfonul. Verifică permisiunea pentru această pagină.";
+        console.error(error);
       }
     }
 
-    function downloadAudio() {
-      if (!currentAudioBlob) {
-        alert("Generează mai întâi anunțul.");
+    async function startMicrophone() {
+      if (!micSelect.value) {
+        micStatus.textContent = "Încarcă intrările audio și selectează un microfon.";
         return;
       }
-      const a = document.createElement("a");
-      a.href = currentAudioUrl;
-      a.download = "anunt_" + Date.now() + ".mp3";
-      a.click();
+
+      stopMicrophone();
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { exact: micSelect.value }
+          }
+        });
+
+        startMicBtn.disabled = true;
+        stopMicBtn.disabled = false;
+        micStatus.textContent = "Microfonul este pornit.";
+      } catch (error) {
+        micStatus.textContent =
+          "Nu s-a putut porni intrarea selectată. Verifică permisiunile și dispozitivul.";
+        console.error(error);
+      }
     }
 
-    document.getElementById("generateBtn").onclick = generateTTS;
-    document.getElementById("downloadBtn").onclick = downloadAudio;
-    document.getElementById("stopBtn").onclick = () => {
-      document.getElementById("player").pause();
-    };
+    function stopMicrophone() {
+      if (micStream) {
+        micStream.getTracks().forEach(track => track.stop());
+        micStream = null;
+      }
+
+      startMicBtn.disabled = false;
+      stopMicBtn.disabled = true;
+      micStatus.textContent = "Microfonul nu este pornit.";
+    }
+
+    document.getElementById("refreshMicsBtn").addEventListener("click", loadMicrophones);
+    startMicBtn.addEventListener("click", startMicrophone);
+    stopMicBtn.addEventListener("click", stopMicrophone);
+
+    // Voce română, dacă browserul/sistemul are una instalată.
+    function speakRomanian() {
+      const text = document.getElementById("announcement").value.trim();
+      const status = document.getElementById("speechStatus");
+
+      if (!text) return;
+
+      const voices = speechSynthesis.getVoices();
+      const romanianVoice = voices.find(voice =>
+        voice.lang.toLowerCase().startsWith("ro")
+      );
+
+      if (!romanianVoice) {
+        status.textContent =
+          "Nu este disponibilă o voce română în browserul sau sistemul tău.";
+        return;
+      }
+
+      speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ro-RO";
+      utterance.voice = romanianVoice;
+
+      utterance.onstart = () => {
+        status.textContent = "Redau anunțul în română…";
+      };
+
+      utterance.onend = () => {
+        status.textContent = "Anunț terminat.";
+      };
+
+      utterance.onerror = () => {
+        status.textContent = "Eroare la redarea anunțului.";
+      };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    document.getElementById("generateBtn").addEventListener("click", speakRomanian);
+
+    document.getElementById("stopSpeechBtn").addEventListener("click", () => {
+      speechSynthesis.cancel();
+    });
+
+    speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+
+    // Reîncarcă lista dacă conectezi/deconectezi un dispozitiv audio.
+    navigator.mediaDevices.addEventListener?.("devicechange", () => {
+      loadMicrophones();
+    });
   </script>
 </body>
-</html>
