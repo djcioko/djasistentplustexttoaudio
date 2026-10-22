@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DJ Assistant cu AudD</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #eee;
+      margin: 20px;
+    }
+
+    h1, h2 { color: #1db954; }
+
+    .box {
+      background: #222;
+      padding: 16px;
+      margin: 15px 0;
+      border-radius: 10px;
+    }
+
+    button, select, textarea {
+      padding: 10px;
+      margin: 5px;
+      font-size: 16px;
+    }
+
+    button {
+      background: #1db954;
+      color: white;
+      border: 0;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button.stop { background: #b33; }
+
+    .track {
+      padding: 10px;
+      border-bottom: 1px solid #444;
+    }
+
+    .status { color: #ccc; margin: 10px 5px; }
+    textarea { box-sizing: border-box; width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>🎧 DJ Assistant + AudD</h1>
+  <p>
+    Selectează intrarea audio conectată la Serato. Pentru sunetul intern al
+    laptopului, folosește o intrare audio virtuală.
+  </p>
+
+  <div class="box">
+    <h2>Ascultare și identificare</h2>
+    <label for="audioInput">Intrare audio:</label>
+    <select id="audioInput"></select>
+
+    <div>
+      <button id="refreshButton">Reîmprospătează intrările</button>
+      <button id="startButton">Pornește</button>
+      <button id="stopButton" class="stop">Oprește</button>
+    </div>
+
+    <div id="status" class="status">Ascultarea este oprită.</div>
+    <div id="currentSong"></div>
+    <div id="suggestions"></div>
+  </div>
+
+  <div class="box">
+    <h2>Anunț vocal în română</h2>
+    <textarea id="announcement" rows="3">Salutare, bine ați venit la petrecere!</textarea>
+    <br>
+    <select id="voice">
+      <option value="">Voce românească implicită</option>
+    </select>
+    <button id="speakButton">▶ Redă anunțul</button>
+    <button id="stopSpeechButton" class="stop">Oprește vocea</button>
+    <div id="speechStatus" class="status"></div>
+  </div>
+
+  <script>
+    // Înlocuiește exemplele cu biblioteca ta și completează BPM/key.
+    const library = [
+      { title: "Levels", artist: "Avicii", bpm: 126, key: "8A" },
+      { title: "Titanium", artist: "David Guetta", bpm: 126, key: "9A" },
+      { title: "Wake Me Up", artist: "Avicii", bpm: 124, key: "7A" },
+      { title: "Don't You Worry Child", artist: "Swedish House Mafia", bpm: 129, key: "8A" },
+      { title: "Animals", artist: "Martin Garrix", bpm: 128, key: "6A" },
+      { title: "Clarity", artist: "Zedd", bpm: 128, key: "10A" },
+      { title: "Summer", artist: "Calvin Harris", bpm: 128, key: "8B" },
+      { title: "One More Time", artist: "Daft Punk", bpm: 123, key: "9A" },
+      { title: "Strobe", artist: "Deadmau5", bpm: 128, key: "5A" },
+      { title: "Sandstorm", artist: "Darude", bpm: 136, key: "8A" }
+    ];
+
+    let stream = null;
+    let recorder = null;
+    let loopTimer = null;
+    let busy = false;
+    let voices = [];
+
+    const statusEl = document.getElementById("status");
+
+    async function refreshInputs() {
+      try {
+        // Permisiunea permite browserului să afişeze numele dispozitivelor audio.
+        const permission = await navigator.mediaDevices.getUserMedia({ audio: true });
+        permission.getTracks().forEach(track => track.stop());
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const inputs = devices.filter(device => device.kind === "audioinput");
+        const select = document.getElementById("audioInput");
+        select.replaceChildren();
+
+        inputs.forEach((device, index) => {
+          const option = document.createElement("option");
+          option.value = device.deviceId;
+          option.textContent = device.label || `Intrare audio ${index + 1}`;
+          select.appendChild(option);
+        });
+
+        statusEl.textContent = "Alege intrarea conectată la ieșirea Serato.";
+      } catch {
+        statusEl.textContent =
+          "Nu pot accesa intrările audio. Permite accesul la microfon în browser.";
+      }
+    }
+
+    function chooseMimeType() {
+      const types = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus"
+      ];
+
+      return types.find(type => MediaRecorder.isTypeSupported(type)) || "";
+    }
+
+    async function startListening() {
+      try {
+        await stopListening();
+
+        const deviceId = document.getElementById("audioInput").value;
+        const constraints = {
+          audio: deviceId ? { deviceId: { exact: deviceId } } : true
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        statusEl.textContent = "Ascultare pornită. Trimit fragmente audio către AudD…";
+
+        await recordAndIdentify();
+        loopTimer = setInterval(recordAndIdentify, 12000);
+      } catch (error) {
+        console.error(error);
+        statusEl.textContent =
+          "Nu am putut porni captura audio. Verifică permisiunile și intrarea selectată.";
+      }
+    }
+
+    function recordClip() {
+      return new Promise((resolve, reject) => {
+        const mimeType = chooseMimeType();
+        const options = mimeType ? { mimeType } : {};
+        const parts = [];
+
+        try {
+          recorder = new MediaRecorder(stream, options);
+          recorder.ondataavailable = event => {
+            if (event.data && event.data.size) parts.push(event.data);
+          };
+          recorder.onerror = () => reject(new Error("Eroare la înregistrare."));
+          recorder.onstop = () => {
+            const type = recorder.mimeType || "audio/webm";
+            resolve(new Blob(parts, { type }));
+          };
+
+          recorder.start();
+          setTimeout(() => {
+            if (recorder && recorder.state !== "inactive") recorder.stop();
+          }, 8000);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    }
+
+    async function recordAndIdentify() {
+      if (!stream || busy) return;
+      busy = true;
+
+      try {
+        statusEl.textContent = "Înregistrez un fragment audio…";
+        const clip = await recordClip();
+
+        if (!clip.size) {
+          statusEl.textContent = "Fragment audio gol. Verifică intrarea selectată.";
+          return;
+        }
+
+        const form = new FormData();
+        form.append("audio", clip, "clip.webm");
+
+        statusEl.textContent = "Caut piesa în AudD…";
+        const response = await fetch("/recognize", {
+          method: "POST",
+          body: form
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Eroare de la server.");
+        }
+
+        if (!data.result) {
+          statusEl.textContent = "Nu am recunoscut piesa. Voi încerca din nou.";
+          return;
+        }
+
+        showSong(data.result);
+      } catch (error) {
+        console.error(error);
+        statusEl.textContent = error.message || "A apărut o eroare.";
+      } finally {
+        busy = false;
+      }
+    }
+
+    function normalize(value) {
+      return (value || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim();
+    }
+
+    function camelotCompatible(a, b) {
+      const first = (a || "").toUpperCase().match(/^(\d{1,2})([AB])$/);
+      const second = (b || "").toUpperCase().match(/^(\d{1,2})([AB])$/);
+
+      if (!first || !second) return false;
+
+      const n1 = Number(first[1]);
+      const n2 = Number(second[1]);
+      const l1 = first[2];
+      const l2 = second[2];
+      const distance = Math.min(Math.abs(n1 - n2), 12 - Math.abs(n1 - n2));
+
+      if (n1 === n2 && l1 === l2) return "perfect";
+      if (n1 === n2 && l1 !== l2) return "good";
+      if (l1 === l2 && distance === 1) return "good";
+      if (l1 === l2 && distance === 2) return "ok";
+      return false;
+    }
+
+    function showSong(song) {
+      const title = song.title || "Titlu necunoscut";
+      const artist = song.artist || "Artist necunoscut";
+
+      document.getElementById("currentSong").textContent =
+        `Piesă recunoscută: ${artist} — ${title}`;
+
+      statusEl.textContent = "Piesă identificată.";
+      showSuggestions(title, artist);
+    }
+
+    function showSuggestions(title, artist) {
+      const suggestions = document.getElementById("suggestions");
+      suggestions.replaceChildren();
+
+      const heading = document.createElement("h3");
+      heading.textContent = "5 recomandări din biblioteca locală:";
+      suggestions.appendChild(heading);
+
+      const current = library.find(track =>
+        normalize(track.title) === normalize(title) &&
+        normalize(track.artist) === normalize(artist)
+      );
+
+      if (!current) {
+        const note = document.createElement("p");
+        note.textContent =
+          "Piesa nu este în biblioteca exemplu, deci nu am BPM/key pentru potrivire. Adaug-o în lista library din cod.";
+        suggestions.appendChild(note);
+        return;
+      }
+
+      const results = library
+        .filter(track => track !== current)
+        .map(track => {
+          const bpmDiff = Math.abs(track.bpm - current.bpm);
+          const keyMatch = camelotCompatible(current.key, track.key);
+          let score = 0;
+
+          if (bpmDiff <= 3) score += 50;
+          else if (bpmDiff <= 6) score += 30;
+          else if (bpmDiff <= 10) score += 10;
+
+          if (keyMatch === "perfect") score += 50;
+          else if (keyMatch === "good") score += 35;
+          else if (keyMatch === "ok") score += 15;
+
+          return { ...track, bpmDiff, keyMatch, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
+
+      results.forEach(track => {
+        const item = document.createElement("div");
+        item.className = "track";
+        item.textContent =
+          `${track.artist} — ${track.title} | BPM ${track.bpm} | ` +
+          `Key ${track.key} | scor ${track.score}`;
+        suggestions.appendChild(item);
+      });
+    }
+
+    async function stopListening() {
+      if (loopTimer) {
+        clearInterval(loopTimer);
+        loopTimer = null;
+      }
+
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
+
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      statusEl.textContent = "Ascultarea este oprită.";
+    }
+
+    function loadVoices() {
+      voices = speechSynthesis.getVoices();
+      const romanian = voices.filter(voice =>
+        voice.lang.toLowerCase().startsWith("ro")
+      );
+
+      const select = document.getElementById("voice");
+      select.replaceChildren();
+
+      const defaultOption = document.createElement("option");
+      defaultOption.value = "";
+      defaultOption.textContent = romanian.length
+        ? "Voce românească implicită"
+        : "Voce implicită — nu s-a găsit voce românească";
+      select.appendChild(defaultOption);
+
+      romanian.forEach(voice => {
+        const option = document.createElement("option");
+        option.value = voice.name;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        select.appendChild(option);
+      });
+    }
+
+    function speak() {
+      const text = document.getElementById("announcement").value.trim();
+      if (!text) return;
+
+      speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ro-RO";
+      utterance.rate = 1;
+
+      const selected = voices.find(
+        voice => voice.name === document.getElementById("voice").value
+      );
+
+      if (selected) {
+        utterance.voice = selected;
+        utterance.lang = selected.lang;
+      }
+
+      utterance.onstart = () => {
+        document.getElementById("speechStatus").textContent = "Redare…";
+      };
+
+      utterance.onend = () => {
+        document.getElementById("speechStatus").textContent = "Anunț terminat.";
+      };
+
+      speechSynthesis.speak(utterance);
+    }
+
+    document.getElementById("refreshButton").onclick = refreshInputs;
+    document.getElementById("startButton").onclick = startListening;
+    document.getElementById("stopButton").onclick = stopListening;
+    document.getElementById("speakButton").onclick = speak;
+
+    document.getElementById("stopSpeechButton").onclick = () => {
+      speechSynthesis.cancel();
+      document.getElementById("speechStatus").textContent = "Vocea a fost oprită.";
+    };
+
+    speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+  </script>
+</body>
+</html>
