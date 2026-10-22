@@ -4,106 +4,70 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024
-  }
+  limits: { fileSize: 15 * 1024 * 1024 }
 });
 
+const PORT = process.env.PORT || 3000;
+const libraryPath = path.join(__dirname, "library.json");
+
 app.use(express.static(path.join(__dirname, "public")));
-app.use(express.json());
 
 function readLibrary() {
   try {
-    const filePath = path.join(__dirname, "library.json");
-    return JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (error) {
-    console.error("Eroare la citirea library.json:", error.message);
+    return JSON.parse(fs.readFileSync(libraryPath, "utf8"));
+  } catch {
     return [];
   }
 }
 
-function normalizeKey(key) {
-  return String(key || "").trim().toUpperCase();
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
-function isValidCamelotKey(key) {
-  return /^(?:[1-9]|1[0-2])[AB]$/.test(normalizeKey(key));
+function sameTrack(a, b) {
+  return normalize(a.title) === normalize(b.title) &&
+         normalize(a.artist) === normalize(b.artist);
 }
 
-function camelotCompatibility(key1, key2) {
-  const a = normalizeKey(key1);
-  const b = normalizeKey(key2);
+function camelotDistance(a, b) {
+  const parse = value => {
+    const match = String(value || "").toUpperCase().match(/^([1-9]|1[0-2])([AB])$/);
+    return match ? { number: Number(match[1]), mode: match[2] } : null;
+  };
 
-  if (!isValidCamelotKey(a) || !isValidCamelotKey(b)) {
-    return { points: 0, label: "cheie necunoscută" };
-  }
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return null;
 
-  const numberA = parseInt(a, 10);
-  const numberB = parseInt(b, 10);
-  const letterA = a.slice(-1);
-  const letterB = b.slice(-1);
+  const wheelDistance = Math.min(
+    Math.abs(x.number - y.number),
+    12 - Math.abs(x.number - y.number)
+  );
 
-  if (a === b) {
-    return { points: 40, label: "perfectă" };
-  }
-
-  if (numberA === numberB && letterA !== letterB) {
-    return { points: 30, label: "compatibilă" };
-  }
-
-  const clockwise = (numberA % 12) + 1;
-  const counterClockwise = ((numberA + 10) % 12) + 1;
-
-  if (
-    letterA === letterB &&
-    (numberB === clockwise || numberB === counterClockwise)
-  ) {
-    return { points: 25, label: "compatibilă" };
-  }
-
-  return { points: 0, label: "mai puțin compatibilă" };
+  if (x.mode === y.mode && wheelDistance === 0) return 3; // perfect
+  if (x.mode === y.mode && wheelDistance === 1) return 2; // compatibil
+  if (x.mode !== y.mode && wheelDistance === 0) return 2; // relativ major/minor
+  return 1; // mai puțin compatibil
 }
 
-function recommendTracks(currentTrack) {
-  const library = readLibrary();
-  const currentBpm = Number(currentTrack.bpm);
-  const currentKey = normalizeKey(currentTrack.key);
+function recommendTracks(current, library) {
+  if (!Number.isFinite(Number(current.bpm)) || !current.key) return [];
 
   return library
-    .filter((track) => {
-      const sameTitle =
-        String(track.title).toLowerCase() ===
-        String(currentTrack.title).toLowerCase();
+    .filter(track => !sameTrack(track, current))
+    .map(track => {
+      const bpmDifference = Math.abs(Number(track.bpm) - Number(current.bpm));
+      const keyScore = camelotDistance(current.key, track.key);
 
-      const sameArtist =
-        String(track.artist).toLowerCase() ===
-        String(currentTrack.artist).toLowerCase();
-
-      return !(sameTitle && sameArtist) && Number.isFinite(Number(track.bpm));
-    })
-    .map((track) => {
-      const bpmDifference = Math.abs(Number(track.bpm) - currentBpm);
-
-      if (bpmDifference > 10) {
+      if (!Number.isFinite(bpmDifference) || bpmDifference > 10 || keyScore === null) {
         return null;
       }
 
-      const keyMatch = camelotCompatibility(currentKey, track.key);
-      const bpmPoints = Math.max(0, 30 - bpmDifference * 3);
-
-      return {
-        title: track.title,
-        artist: track.artist,
-        bpm: track.bpm,
-        key: track.key,
-        bpmDifference,
-        keyCompatibility: keyMatch.label,
-        score: bpmPoints + keyMatch.points
-      };
+      // Scor mai bun pentru diferență mică de BPM și compatibilitate Camelot ridicată.
+      const score = keyScore * 10 - bpmDifference;
+      return { ...track, bpmDifference, keyScore, score };
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
@@ -113,26 +77,20 @@ function recommendTracks(currentTrack) {
 app.post("/api/recognize", upload.single("audio"), async (req, res) => {
   try {
     if (!process.env.AUDD_API_TOKEN) {
-      return res.status(500).json({
-        error: "Lipsește variabila AUDD_API_TOKEN din Render."
-      });
+      return res.status(500).json({ error: "Lipsește AUDD_API_TOKEN pe server." });
     }
-
     if (!req.file) {
-      return res.status(400).json({
-        error: "Nu a fost primit niciun fișier audio."
-      });
+      return res.status(400).json({ error: "Nu a fost primit niciun fișier audio." });
     }
 
     const form = new FormData();
     form.append("api_token", process.env.AUDD_API_TOKEN);
     form.append(
       "file",
-      new Blob([req.file.buffer], {
-        type: req.file.mimetype || "audio/webm"
-      }),
+      new Blob([req.file.buffer], { type: req.file.mimetype || "audio/webm" }),
       req.file.originalname || "capture.webm"
     );
+    form.append("return", "spotify");
 
     const auddResponse = await fetch("https://api.audd.io/", {
       method: "POST",
@@ -141,61 +99,76 @@ app.post("/api/recognize", upload.single("audio"), async (req, res) => {
 
     const auddData = await auddResponse.json();
 
-    if (!auddResponse.ok) {
-      return res.status(502).json({
-        error: "AudD nu a răspuns corect."
-      });
-    }
-
-    if (!auddData.result) {
-      return res.json({
-        song: null,
-        message: "Nu am recunoscut piesa. Încearcă din nou cu sunetul mai clar."
+    if (!auddResponse.ok || auddData.status !== "success" || !auddData.result) {
+      return res.status(422).json({
+        error: auddData.error?.error_message || "Nu am identificat piesa.",
+        details: auddData
       });
     }
 
     const result = auddData.result;
     const library = readLibrary();
 
-    const localTrack = library.find((track) => {
-      return (
-        String(track.title).toLowerCase() ===
-          String(result.title || "").toLowerCase() &&
-        String(track.artist).toLowerCase() ===
-          String(result.artist || "").toLowerCase()
-      );
-    });
+    // AudD identifică titlul și artistul, dar BPM/key trebuie să existe în biblioteca locală.
+    const localTrack = library.find(track =>
+      sameTrack(track, { title: result.title, artist: result.artist })
+    );
 
-    const song = {
-      title: result.title || "Titlu necunoscut",
-      artist: result.artist || "Artist necunoscut",
+    const currentTrack = {
+      title: result.title,
+      artist: result.artist,
       album: result.album || "",
-      bpm: localTrack ? Number(localTrack.bpm) : null,
-      key: localTrack ? normalizeKey(localTrack.key) : null
+      bpm: localTrack?.bpm ?? null,
+      key: localTrack?.key ?? null,
+      spotifyUrl:
+        result.spotify?.external_urls?.spotify ||
+        `https://open.spotify.com/search/${encodeURIComponent(
+          `${result.artist} ${result.title}`
+        )}`
     };
 
-    const recommendations =
-      song.bpm && song.key ? recommendTracks(song) : [];
-
     res.json({
-      song,
-      recommendations,
-      message:
-        song.bpm && song.key
-          ? ""
-          : "Piesa a fost identificată. Adaug-o în library.json cu BPM și cheia Camelot pentru a primi recomandări."
+      track: currentTrack,
+      recommendations: localTrack ? recommendTracks(localTrack, library) : [],
+      message: localTrack
+        ? ""
+        : "Piesa a fost identificată, dar nu apare în library.json cu BPM și key. Adaug-o acolo pentru recomandări."
     });
   } catch (error) {
-    console.error("Eroare la recunoaștere:", error);
-
-    res.status(500).json({
-      error: "A apărut o eroare la recunoașterea piesei."
-    });
+    console.error(error);
+    res.status(500).json({ error: "Eroare la identificarea audio." });
   }
 });
 
-app.get("/api/health", (req, res) => {
-  res.json({ ok: true });
+// Endpoint demonstrativ pentru audio TTS descărcabil.
+// Verifică dacă vocea aleasă și endpointul sunt disponibile înainte de deploy.
+app.get("/api/tts", async (req, res) => {
+  try {
+    const text = String(req.query.text || "").trim();
+
+    if (!text || text.length > 500) {
+      return res.status(400).send("Text invalid sau prea lung.");
+    }
+
+    const ttsUrl =
+      "https://api.streamelements.com/kappa/v2/speech" +
+      `?voice=${encodeURIComponent(process.env.TTS_VOICE || "Alina")}` +
+      `&text=${encodeURIComponent(text)}`;
+
+    const response = await fetch(ttsUrl);
+
+    if (!response.ok) {
+      return res.status(502).send("Serviciul TTS nu a generat audio.");
+    }
+
+    const audio = Buffer.from(await response.arrayBuffer());
+    res.setHeader("Content-Type", response.headers.get("content-type") || "audio/mpeg");
+    res.setHeader("Content-Disposition", 'attachment; filename="anunt-audio"');
+    res.send(audio);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Eroare la generarea anunțului.");
+  }
 });
 
 app.listen(PORT, () => {
