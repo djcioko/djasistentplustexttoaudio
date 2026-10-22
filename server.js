@@ -1,160 +1,117 @@
-const express = require("express");
-const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 
-const app = express();
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }
-});
-
-app.use(express.static(path.join(__dirname, "public")));
+const LIBRARY_PATH = path.join(__dirname, "library.json");
 
 function readLibrary() {
   try {
-    return JSON.parse(
-      fs.readFileSync(path.join(__dirname, "library.json"), "utf8")
-    );
-  } catch {
+    const data = fs.readFileSync(LIBRARY_PATH, "utf8");
+    const library = JSON.parse(data);
+
+    if (!Array.isArray(library)) {
+      throw new Error("library.json trebuie să conțină o listă JSON.");
+    }
+
+    return library;
+  } catch (error) {
+    console.error("Eroare la citirea library.json:", error.message);
     return [];
   }
 }
 
-function normalize(value) {
-  return String(value || "").trim().toLowerCase();
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim();
 }
 
-function camelotScore(first, second) {
-  const parse = value => {
-    const match = String(value || "").toUpperCase().match(/^([1-9]|1[0-2])([AB])$/);
-    return match ? { number: Number(match[1]), mode: match[2] } : null;
+function findDetectedTrack(result, library) {
+  const detectedTitle = normalizeText(result.title);
+  const detectedArtist = normalizeText(result.artist);
+
+  return library.find((track) => {
+    const titleMatches = normalizeText(track.title) === detectedTitle;
+    const artistMatches = normalizeText(track.artist) === detectedArtist;
+
+    return titleMatches && artistMatches;
+  });
+}
+
+function parseCamelotKey(value) {
+  const match = String(value || "")
+    .trim()
+    .toUpperCase()
+    .match(/^(1[0-2]|[1-9])([AB])$/);
+
+  if (!match) return null;
+
+  return {
+    number: Number(match[1]),
+    letter: match[2]
   };
-
-  const a = parse(first);
-  const b = parse(second);
-  if (!a || !b) return 0;
-
-  const distance = Math.min(
-    Math.abs(a.number - b.number),
-    12 - Math.abs(a.number - b.number)
-  );
-
-  if (a.mode === b.mode && distance === 0) return 3;
-  if (a.mode === b.mode && distance === 1) return 2;
-  if (a.mode !== b.mode && distance === 0) return 2;
-  return 1;
 }
 
-app.post("/api/recognize", upload.single("audio"), async (req, res) => {
-  try {
-    if (!process.env.AUDD_API_TOKEN) {
-      return res.status(500).json({ error: "Lipsește AUDD_API_TOKEN." });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: "Nu a fost primit audio." });
-    }
+function camelotCompatible(keyA, keyB) {
+  const a = parseCamelotKey(keyA);
+  const b = parseCamelotKey(keyB);
 
-    const form = new FormData();
-    form.append("api_token", process.env.AUDD_API_TOKEN);
-    form.append(
-      "file",
-      new Blob([req.file.buffer], { type: req.file.mimetype || "audio/webm" }),
-      "capture.webm"
-    );
+  if (!a || !b) return false;
 
-    const response = await fetch("https://api.audd.io/", {
-      method: "POST",
-      body: form
-    });
+  // Aceeași cheie
+  if (a.number === b.number && a.letter === b.letter) return true;
 
-    const audd = await response.json();
-    if (!response.ok || audd.status !== "success" || !audd.result) {
-      return res.status(422).json({ error: "AudD nu a identificat piesa." });
-    }
+  // Cheia relativă: de exemplu 8A și 8B
+  if (a.number === b.number && a.letter !== b.letter) return true;
 
-    const result = audd.result;
-    const library = readLibrary();
+  // Cheile vecine de pe roata Camelot: de exemplu 8A și 7A/9A
+  const clockwise = (a.number % 12) + 1;
+  const counterClockwise = ((a.number + 10) % 12) + 1;
 
-    const localTrack = library.find(track =>
-      normalize(track.title) === normalize(result.title) &&
-      normalize(track.artist) === normalize(result.artist)
-    );
+  return (
+    a.letter === b.letter &&
+    (b.number === clockwise || b.number === counterClockwise)
+  );
+}
 
-    let recommendations = [];
+function getRecommendations(detectedTrack, library, limit = 5) {
+  const detectedBpm = Number(detectedTrack.bpm);
+  const detectedKey = detectedTrack.key;
 
-    if (localTrack) {
-      recommendations = library
-        .filter(track => track !== localTrack)
-        .map(track => {
-          const bpmDifference = Math.abs(Number(track.bpm) - Number(localTrack.bpm));
-          const keyMatch = camelotScore(track.key, localTrack.key);
-          return { ...track, bpmDifference, keyMatch };
-        })
-        .filter(track =>
-          Number.isFinite(track.bpmDifference) &&
-          track.bpmDifference <= 10 &&
-          track.keyMatch > 0
-        )
-        .sort((a, b) =>
-          (b.keyMatch * 10 - b.bpmDifference) -
-          (a.keyMatch * 10 - a.bpmDifference)
-        )
-        .slice(0, 5);
-    }
-
-    res.json({
-      track: {
-        title: result.title,
-        artist: result.artist,
-        album: result.album || "",
-        bpm: localTrack?.bpm || null,
-        key: localTrack?.key || null
-      },
-      recommendations,
-      message: localTrack
-        ? ""
-        : "Piesa a fost identificată. Adaug-o în library.json cu BPM și Camelot key pentru recomandări."
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Eroare la identificarea audio." });
+  if (!Number.isFinite(detectedBpm) || !detectedKey) {
+    return [];
   }
-});
 
-// TTS demonstrativ: fișierul descărcat este audio-ul returnat de serviciu.
-// Extensia se stabilește după Content-Type, nu se presupune că este MP3.
-app.get("/api/tts", async (req, res) => {
-  try {
-    const text = String(req.query.text || "").trim();
-    if (!text || text.length > 500) {
-      return res.status(400).send("Text invalid.");
-    }
+  return library
+    .filter((track) => {
+      // Nu recomandăm piesa care tocmai a fost recunoscută
+      const sameTrack =
+        normalizeText(track.title) === normalizeText(detectedTrack.title) &&
+        normalizeText(track.artist) === normalizeText(detectedTrack.artist);
 
-    const voice = process.env.TTS_VOICE || "Alina";
-    const url =
-      "https://api.streamelements.com/kappa/v2/speech" +
-      `?voice=${encodeURIComponent(voice)}` +
-      `&text=${encodeURIComponent(text)}`;
+      if (sameTrack) return false;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      return res.status(502).send("Serviciul TTS nu a generat audio.");
-    }
+      const bpm = Number(track.bpm);
+      if (!Number.isFinite(bpm)) return false;
 
-    const contentType = response.headers.get("content-type") || "audio/mpeg";
-    const extension = contentType.includes("mpeg") ? "mp3" : "audio";
-    res.setHeader("Content-Type", contentType);
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="anunt.${extension}"`
-    );
-    res.send(Buffer.from(await response.arrayBuffer()));
-  } catch (error) {
-    console.error(error);
-    res.status(500).send("Eroare la generarea anunțului.");
-  }
-});
+      // Diferența maximă: 10 BPM
+      if (Math.abs(bpm - detectedBpm) > 10) return false;
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server pornit pe portul ${port}`));
+      // Recomandăm doar dacă cheia este compatibilă Camelot
+      return camelotCompatible(detectedKey, track.key);
+    })
+    .map((track) => {
+      const bpmDifference = Math.abs(Number(track.bpm) - detectedBpm);
+
+      return {
+        ...track,
+        bpmDifference,
+        spotifyUrl:
+          "https://open.spotify.com/search/" +
+          encodeURIComponent(`${track.artist} ${track.title}`)
+      };
+    })
+    .sort((a, b) => a.bpmDifference - b.bpmDifference)
+    .slice(0, limit);
+}
