@@ -1,32 +1,23 @@
 [
   {
-    "title": "Example Track 1",
+    "title": "Example Track One",
     "artist": "Example Artist",
     "bpm": 124,
-    "key": "8A"
+    "key": "8A",
+    "spotifyUrl": ""
   },
   {
-    "title": "Example Track 2",
+    "title": "Example Track Two",
     "artist": "Example Artist",
     "bpm": 126,
-    "key": "9A"
+    "key": "9A",
+    "spotifyUrl": ""
   },
   {
-    "title": "Example Track 3",
+    "title": "Example Track Three",
     "artist": "Example Artist",
     "bpm": 122,
-    "key": "8B"
-  },
-  {
-    "title": "Example Track 4",
-    "artist": "Example Artist",
-    "bpm": 128,
-    "key": "7A"
-  },
-  {
-    "title": "Example Track 5",
-    "artist": "Example Artist",
-    "bpm": 120,
-    "key": "9B"
+    "key": "8B",
+    "spotifyUrl": ""
   }
 ]
