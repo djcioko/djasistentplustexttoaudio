@@ -21,7 +21,7 @@ function readLibrary() {
     const filePath = path.join(__dirname, "library.json");
     return JSON.parse(fs.readFileSync(filePath, "utf8"));
   } catch (error) {
-    console.error("Nu am putut citi library.json:", error.message);
+    console.error("Eroare la citirea library.json:", error.message);
     return [];
   }
 }
@@ -31,7 +31,7 @@ function normalizeKey(key) {
 }
 
 function isValidCamelotKey(key) {
-  return /^[1-9]|1[0-2][AB]$/.test(normalizeKey(key));
+  return /^(?:[1-9]|1[0-2])[AB]$/.test(normalizeKey(key));
 }
 
 function camelotCompatibility(key1, key2) {
@@ -48,7 +48,7 @@ function camelotCompatibility(key1, key2) {
   const letterB = b.slice(-1);
 
   if (a === b) {
-    return { points: 40, label: "perfect" };
+    return { points: 40, label: "perfectă" };
   }
 
   if (numberA === numberB && letterA !== letterB) {
@@ -70,31 +70,30 @@ function camelotCompatibility(key1, key2) {
 
 function recommendTracks(currentTrack) {
   const library = readLibrary();
-
   const currentBpm = Number(currentTrack.bpm);
   const currentKey = normalizeKey(currentTrack.key);
 
   return library
     .filter((track) => {
-      const sameTrack =
+      const sameTitle =
         String(track.title).toLowerCase() ===
-          String(currentTrack.title).toLowerCase() &&
-        String(track.artist).toLowerCase() ===
-          String(currentTrack.artist).toLowerCase();
+        String(currentTrack.title).toLowerCase();
 
-      return !sameTrack && Number.isFinite(Number(track.bpm));
+      const sameArtist =
+        String(track.artist).toLowerCase() ===
+        String(currentTrack.artist).toLowerCase();
+
+      return !(sameTitle && sameArtist) && Number.isFinite(Number(track.bpm));
     })
     .map((track) => {
       const bpmDifference = Math.abs(Number(track.bpm) - currentBpm);
-      const keyMatch = camelotCompatibility(currentKey, track.key);
 
-      // BPM-ul poate diferi cu maximum 10.
       if (bpmDifference > 10) {
         return null;
       }
 
+      const keyMatch = camelotCompatibility(currentKey, track.key);
       const bpmPoints = Math.max(0, 30 - bpmDifference * 3);
-      const score = bpmPoints + keyMatch.points;
 
       return {
         title: track.title,
@@ -103,7 +102,7 @@ function recommendTracks(currentTrack) {
         key: track.key,
         bpmDifference,
         keyCompatibility: keyMatch.label,
-        score
+        score: bpmPoints + keyMatch.points
       };
     })
     .filter(Boolean)
@@ -144,8 +143,7 @@ app.post("/api/recognize", upload.single("audio"), async (req, res) => {
 
     if (!auddResponse.ok) {
       return res.status(502).json({
-        error: "AudD nu a răspuns corect.",
-        details: auddData
+        error: "AudD nu a răspuns corect."
       });
     }
 
@@ -157,16 +155,16 @@ app.post("/api/recognize", upload.single("audio"), async (req, res) => {
     }
 
     const result = auddData.result;
-
-    // AudD identifică piesa, dar BPM-ul și cheia pentru recomandări
-    // trebuie completate în library.json.
     const library = readLibrary();
-    const localTrack = library.find((track) =>
-      String(track.title).toLowerCase() ===
-        String(result.title || "").toLowerCase() &&
-      String(track.artist).toLowerCase() ===
-        String(result.artist || "").toLowerCase()
-    );
+
+    const localTrack = library.find((track) => {
+      return (
+        String(track.title).toLowerCase() ===
+          String(result.title || "").toLowerCase() &&
+        String(track.artist).toLowerCase() ===
+          String(result.artist || "").toLowerCase()
+      );
+    });
 
     const song = {
       title: result.title || "Titlu necunoscut",
@@ -185,13 +183,13 @@ app.post("/api/recognize", upload.single("audio"), async (req, res) => {
       message:
         song.bpm && song.key
           ? ""
-          : "Piesa a fost identificată, dar adaug-o în library.json cu BPM și cheia Camelot ca să primești recomandări."
+          : "Piesa a fost identificată. Adaug-o în library.json cu BPM și cheia Camelot pentru a primi recomandări."
     });
   } catch (error) {
     console.error("Eroare la recunoaștere:", error);
+
     res.status(500).json({
-      error: "A apărut o eroare la recunoașterea piesei.",
-      details: error.message
+      error: "A apărut o eroare la recunoașterea piesei."
     });
   }
 });
