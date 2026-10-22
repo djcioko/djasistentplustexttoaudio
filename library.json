@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Example Track 1",
+    "artist": "Example Artist",
+    "bpm": 124,
+    "key": "8A"
+  },
+  {
+    "title": "Example Track 2",
+    "artist": "Example Artist",
+    "bpm": 126,
+    "key": "9A"
+  },
+  {
+    "title": "Example Track 3",
+    "artist": "Example Artist",
+    "bpm": 122,
+    "key": "8B"
+  },
+  {
+    "title": "Example Track 4",
+    "artist": "Example Artist",
+    "bpm": 128,
+    "key": "7A"
+  },
+  {
+    "title": "Example Track 5",
+    "artist": "Example Artist",
+    "bpm": 120,
+    "key": "9B"
+  }
+]
