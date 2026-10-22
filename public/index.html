@@ -5,114 +5,64 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DJ Assistant</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #090d12;
-      --panel: #111923;
-      --panel2: #17222e;
-      --line: #263544;
-      --text: #edf4f8;
-      --muted: #9aabb8;
-      --green: #1ed760;
-      --blue: #56b4ff;
-      --red: #ff5e6c;
-    }
-
     * { box-sizing: border-box; }
-
     body {
-      margin: 0;
-      padding: 24px;
-      background: radial-gradient(ellipse at top, #152330 0, var(--bg) 58%);
-      color: var(--text);
-      font: 16px Arial, sans-serif;
+      margin: 0; padding: 24px; color: #eef5f8;
+      background: #090e14; font: 16px Arial, sans-serif;
     }
-
-    main { max-width: 900px; margin: 0 auto; }
-    h1 { margin: 0 0 8px; font-size: clamp(28px, 5vw, 42px); }
-    h2 { margin: 0 0 16px; font-size: 20px; }
-    p { color: var(--muted); line-height: 1.5; }
-
+    main { max-width: 900px; margin: auto; }
+    h1 { color: #1ed760; }
+    h2 { margin-top: 0; }
     .box {
-      margin: 18px 0;
-      padding: 20px;
-      background: linear-gradient(145deg, var(--panel2), var(--panel));
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      box-shadow: 0 12px 32px #0005;
+      margin: 18px 0; padding: 20px; border-radius: 15px;
+      background: #121c26; border: 1px solid #283746;
     }
-
-    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
     button, select, textarea {
-      font: inherit;
-      border-radius: 9px;
-      padding: 11px 13px;
+      padding: 11px; border-radius: 8px; font: inherit;
     }
-
-    button {
-      border: 0;
-      background: var(--green);
-      color: #06120a;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    button.secondary { background: #294052; color: var(--text); }
-    button.stop { background: var(--red); color: #190508; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-
+    button { border: 0; background: #1ed760; color: #061109; cursor: pointer; }
+    button.secondary { background: #304456; color: white; }
+    button.stop { background: #e84d5b; color: white; }
+    button:disabled { opacity: .5; }
     select, textarea {
-      background: #0c131b;
-      color: var(--text);
-      border: 1px solid var(--line);
+      color: white; background: #0b1219; border: 1px solid #344656;
     }
-
-    select { min-width: 220px; max-width: 100%; }
-    textarea { width: 100%; resize: vertical; }
-    .status { color: var(--muted); min-height: 24px; margin-top: 12px; }
-    .track { font-size: 20px; font-weight: 700; margin: 8px 0; }
-    .meta { color: var(--muted); }
-    .card {
-      background: #0d151d;
-      border: 1px solid var(--line);
-      padding: 12px;
-      border-radius: 10px;
-      margin-top: 8px;
-    }
-
-    a { color: var(--green); }
+    select { min-width: 230px; max-width: 100%; }
+    textarea { width: 100%; margin: 8px 0; }
+    .status, .muted { color: #a9b8c4; margin-top: 12px; }
+    .track { font-size: 21px; font-weight: bold; }
+    .card { padding: 12px; margin-top: 10px; background: #0c141c; border-radius: 9px; }
+    a { color: #1ed760; }
   </style>
 </head>
 <body>
 <main>
   <h1>🎧 DJ Assistant</h1>
-  <p>Identifică piesa auzită, caut-o pe Spotify și găsește următoarele piese compatibile din biblioteca locală.</p>
+  <p class="muted">Ascultă, identifică piesa cu AudD și caut-o pe Spotify.</p>
 
   <section class="box">
-    <h2>1. Intrare audio</h2>
+    <h2>Intrare audio</h2>
     <div class="row">
-      <select id="micSelect">
-        <option value="">Încarcă intrările audio…</option>
-      </select>
-      <button id="loadMicsBtn" class="secondary">Reîncarcă intrările</button>
-      <button id="startBtn">Pornește ascultarea</button>
+      <select id="micSelect"><option value="">Încarcă intrările audio…</option></select>
+      <button id="loadBtn" class="secondary">Reîncarcă intrările</button>
+      <button id="startBtn">Pornește</button>
       <button id="stopBtn" class="stop" disabled>Oprește</button>
     </div>
-    <div id="micStatus" class="status">Alege microfonul sau interfața audio.</div>
+    <div id="micStatus" class="status">Permite accesul la microfon pentru a vedea intrările.</div>
   </section>
 
   <section class="box">
-    <h2>2. Piesa identificată</h2>
-    <div id="trackResult" class="meta">Încă nu a fost identificată nicio piesă.</div>
+    <h2>Piesa identificată</h2>
+    <div id="track">Nicio piesă identificată încă.</div>
     <div id="recommendations"></div>
     <div id="recognitionStatus" class="status"></div>
   </section>
 
   <section class="box">
-    <h2>3. Anunț vocal</h2>
+    <h2>Anunț vocal în română</h2>
     <textarea id="announcement" rows="3">Salutare, bine ați venit la petrecere!</textarea>
-    <div class="row" style="margin-top:10px">
+    <div class="row">
       <button id="speakBtn">▶ Redă anunțul</button>
       <button id="downloadBtn" class="secondary">⬇ Descarcă audio</button>
       <button id="stopSpeechBtn" class="stop">Oprește anunțul</button>
@@ -123,19 +73,12 @@
 
 <script>
   const micSelect = document.getElementById("micSelect");
-  const micStatus = document.getElementById("micStatus");
-  const recognitionStatus = document.getElementById("recognitionStatus");
-  const trackResult = document.getElementById("trackResult");
-  const recommendations = document.getElementById("recommendations");
-
   let stream = null;
   let recorder = null;
-  let chunks = [];
-  let captureTimer = null;
+  let timer = null;
 
-  async function loadMics() {
+  async function loadInputs() {
     try {
-      // Cererea de permisiune face numele dispozitivelor vizibile în browser.
       const temp = await navigator.mediaDevices.getUserMedia({ audio: true });
       temp.getTracks().forEach(track => track.stop());
 
@@ -143,64 +86,58 @@
       const inputs = devices.filter(device => device.kind === "audioinput");
 
       micSelect.innerHTML = "";
-      inputs.forEach((device, index) => {
+      inputs.forEach((device, i) => {
         const option = document.createElement("option");
         option.value = device.deviceId;
-        option.textContent = device.label || `Intrare audio ${index + 1}`;
+        option.textContent = device.label || `Intrare audio ${i + 1}`;
         micSelect.appendChild(option);
       });
 
-      if (!inputs.length) {
-        micSelect.innerHTML = '<option value="">Nu s-au găsit intrări audio</option>';
-      }
-
-      micStatus.textContent = "Selectează intrarea audio, apoi pornește ascultarea.";
-    } catch (error) {
-      micStatus.textContent = "Permite accesul la microfon în browser.";
-      console.error(error);
+      document.getElementById("micStatus").textContent =
+        inputs.length ? "Alege microfonul sau interfața audio." : "Nu s-au găsit intrări audio.";
+    } catch {
+      document.getElementById("micStatus").textContent =
+        "Permite accesul la microfon în browser.";
     }
   }
 
   async function startListening() {
-    if (!micSelect.value) {
-      await loadMics();
-      if (!micSelect.value) return;
-    }
-
     try {
+      if (!micSelect.value) await loadInputs();
+      if (!micSelect.value) return;
+
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { deviceId: { exact: micSelect.value } }
       });
 
       document.getElementById("startBtn").disabled = true;
       document.getElementById("stopBtn").disabled = false;
-      micStatus.textContent = "Ascult. Trimit periodic audio către AudD pentru identificare.";
+      document.getElementById("micStatus").textContent = "Ascult…";
 
-      // AudD lucrează pe un fragment audio; se trimit fragmente de 10 secunde.
-      captureTimer = setInterval(recordFragment, 12000);
-      recordFragment();
+      capture();
+      timer = setInterval(capture, 12000);
     } catch (error) {
-      micStatus.textContent = "Nu s-a putut porni dispozitivul audio.";
+      document.getElementById("micStatus").textContent = "Nu s-a putut porni intrarea audio.";
       console.error(error);
     }
   }
 
-  function recordFragment() {
+  function capture() {
     if (!stream || recorder?.state === "recording") return;
 
-    chunks = [];
-    const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? { mimeType: "audio/webm;codecs=opus" }
-      : {};
+    const chunks = [];
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : "";
 
-    recorder = new MediaRecorder(stream, options);
+    recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     recorder.ondataavailable = event => {
       if (event.data.size) chunks.push(event.data);
     };
 
-    recorder.onstop = async () => {
+    recorder.onstop = () => {
       const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      if (blob.size > 1000) await identifyTrack(blob);
+      if (blob.size > 1000) identify(blob);
     };
 
     recorder.start();
@@ -209,89 +146,78 @@
     }, 10000);
   }
 
-  async function identifyTrack(blob) {
-    recognitionStatus.textContent = "Caut piesa cu AudD…";
+  async function identify(blob) {
+    const status = document.getElementById("recognitionStatus");
+    status.textContent = "Caut piesa…";
 
     const form = new FormData();
     form.append("audio", blob, "capture.webm");
 
     try {
-      const response = await fetch("/api/recognize", {
-        method: "POST",
-        body: form
-      });
-
+      const response = await fetch("/api/recognize", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Identificarea a eșuat.");
 
       const track = data.track;
-      trackResult.innerHTML = `
+      const spotifyUrl =
+        `https://open.spotify.com/search/${encodeURIComponent(track.artist + " " + track.title)}`;
+
+      document.getElementById("track").innerHTML = `
         <div class="track">${escapeHtml(track.title)} — ${escapeHtml(track.artist)}</div>
-        <div class="meta">
-          ${track.album ? `Album: ${escapeHtml(track.album)} · ` : ""}
-          ${track.bpm ? `BPM: ${track.bpm} · Key: ${escapeHtml(track.key)}` : "BPM/key nu sunt în library.json"}
-        </div>
-        <p><a href="${escapeHtml(track.spotifyUrl)}" target="_blank" rel="noopener">Caută/deschide pe Spotify ↗</a></p>
+        <p class="muted">${track.bpm ? `${track.bpm} BPM · ${escapeHtml(track.key)}` : "Adaugă BPM și Camelot key în library.json pentru recomandări."}</p>
+        <a href="${spotifyUrl}" target="_blank" rel="noopener">🔎 Caută piesa pe Spotify</a>
       `;
 
-      recommendations.innerHTML = "";
-      if (data.recommendations?.length) {
-        recommendations.innerHTML = "<h3>Recomandări compatibile</h3>" +
-          data.recommendations.map(item => `
+      const list = document.getElementById("recommendations");
+      list.innerHTML = data.recommendations?.length
+        ? "<h3>Recomandări</h3>" + data.recommendations.map(item => `
             <div class="card">
               <strong>${escapeHtml(item.title)} — ${escapeHtml(item.artist)}</strong>
-              <div class="meta">
-                ${item.bpm} BPM · ${escapeHtml(item.key)} · diferență ${item.bpmDifference} BPM
-              </div>
+              <div class="muted">${item.bpm} BPM · ${escapeHtml(item.key)} · diferență ${item.bpmDifference} BPM</div>
               <a target="_blank" rel="noopener"
                  href="https://open.spotify.com/search/${encodeURIComponent(item.artist + " " + item.title)}">
-                Caută pe Spotify ↗
+                Caută pe Spotify
               </a>
             </div>
-          `).join("");
-      }
+          `).join("")
+        : "";
 
-      recognitionStatus.textContent = data.message || "Piesa a fost identificată.";
+      status.textContent = data.message || "Piesa a fost identificată.";
     } catch (error) {
-      recognitionStatus.textContent = error.message;
+      status.textContent = error.message;
     }
   }
 
   function stopListening() {
-    clearInterval(captureTimer);
-    captureTimer = null;
-
+    clearInterval(timer);
+    timer = null;
     if (recorder?.state === "recording") recorder.stop();
     if (stream) stream.getTracks().forEach(track => track.stop());
-
     stream = null;
     recorder = null;
     document.getElementById("startBtn").disabled = false;
     document.getElementById("stopBtn").disabled = true;
-    micStatus.textContent = "Ascultarea s-a oprit.";
+    document.getElementById("micStatus").textContent = "Ascultarea s-a oprit.";
   }
 
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, char => ({
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, c => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    })[char]);
+    })[c]);
   }
 
-  document.getElementById("loadMicsBtn").addEventListener("click", loadMics);
-  document.getElementById("startBtn").addEventListener("click", startListening);
-  document.getElementById("stopBtn").addEventListener("click", stopListening);
-  navigator.mediaDevices.addEventListener?.("devicechange", loadMics);
+  document.getElementById("loadBtn").onclick = loadInputs;
+  document.getElementById("startBtn").onclick = startListening;
+  document.getElementById("stopBtn").onclick = stopListening;
 
-  // Redare cu o voce română instalată în browser/sistem.
-  document.getElementById("speakBtn").addEventListener("click", () => {
+  document.getElementById("speakBtn").onclick = () => {
     const text = document.getElementById("announcement").value.trim();
-    const status = document.getElementById("speechStatus");
     const voice = speechSynthesis.getVoices()
       .find(item => item.lang.toLowerCase().startsWith("ro"));
 
-    if (!text) return;
     if (!voice) {
-      status.textContent = "Browserul nu are instalată o voce română.";
+      document.getElementById("speechStatus").textContent =
+        "Nu este instalată o voce română în browser sau sistem.";
       return;
     }
 
@@ -300,23 +226,17 @@
     utterance.lang = "ro-RO";
     utterance.voice = voice;
     speechSynthesis.speak(utterance);
-    status.textContent = "Redau anunțul în română.";
-  });
+    document.getElementById("speechStatus").textContent = "Redau anunțul.";
+  };
 
-  document.getElementById("stopSpeechBtn").addEventListener("click", () => {
-    speechSynthesis.cancel();
-  });
+  document.getElementById("stopSpeechBtn").onclick = () => speechSynthesis.cancel();
 
-  document.getElementById("downloadBtn").addEventListener("click", async () => {
+  document.getElementById("downloadBtn").onclick = async () => {
     const text = document.getElementById("announcement").value.trim();
     const status = document.getElementById("speechStatus");
+    if (!text) return;
 
-    if (!text) {
-      status.textContent = "Scrie mai întâi textul anunțului.";
-      return;
-    }
-
-    status.textContent = "Generez fișierul audio…";
+    status.textContent = "Generez audio pentru descărcare…";
 
     try {
       const response = await fetch(`/api/tts?text=${encodeURIComponent(text)}`);
@@ -331,12 +251,12 @@
       URL.revokeObjectURL(url);
       status.textContent = "Descărcarea a început.";
     } catch (error) {
-      status.textContent = "Descărcarea TTS a eșuat: " + error.message;
+      status.textContent = "Eroare TTS: " + error.message;
     }
-  });
+  };
 
   speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
-  loadMics();
+  loadInputs();
 </script>
 </body>
 </html>
