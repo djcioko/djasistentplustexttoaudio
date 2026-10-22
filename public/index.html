@@ -6,49 +6,73 @@
   <title>Asistent DJ</title>
   <style>
     body {
-      max-width: 760px;
-      margin: 40px auto;
+      max-width: 800px;
+      margin: 35px auto;
       padding: 0 16px;
-      font: 16px Arial, sans-serif;
+      font-family: Arial, sans-serif;
       color: #f5f5f5;
       background: #171717;
     }
 
-    button {
-      padding: 12px 18px;
-      margin: 6px 6px 6px 0;
+    button, select {
+      padding: 11px 14px;
+      margin: 5px;
       border: 0;
       border-radius: 6px;
-      cursor: pointer;
-      font-size: 16px;
+      font-size: 15px;
     }
 
-    #startButton { background: #71e1ae; }
-    #stopButton { background: #ff8a8a; }
-    #announceButton { background: #90b9ff; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    select { max-width: 100%; }
 
     .box {
-      margin-top: 20px;
+      margin-top: 18px;
       padding: 16px;
       border-radius: 8px;
       background: #262626;
     }
 
     #status { white-space: pre-wrap; }
-    li { margin: 10px 0; }
+    li { margin: 9px 0; }
+    .controls { margin: 12px 0; }
+    #startButton { background: #71e1ae; }
+    #stopButton { background: #ff8a8a; }
+    #announceButton, #downloadButton { background: #90b9ff; }
   </style>
 </head>
 <body>
   <h1>Asistent DJ</h1>
+
   <p>
-    Apasă „Pornește capturarea”, alege fereastra sau ecranul cu Serato
-    și activează „Share system audio” / „Partajează sunetul sistemului”
-    dacă browserul afișează opțiunea.
+    Pentru Serato, folosește „Sunet sistem / Serato”. Pentru o placă de sunet
+    sau un microfon conectat, alege „Microfon” și dispozitivul din listă.
   </p>
 
-  <button id="startButton">Pornește capturarea</button>
-  <button id="stopButton" disabled>Oprește</button>
-  <button id="announceButton" disabled>Anunță piesa</button>
+  <div class="controls">
+    <label for="sourceType">Sursă audio:</label>
+    <select id="sourceType">
+      <option value="system">Sunet sistem / Serato</option>
+      <option value="microphone">Microfon / placă de sunet</option>
+    </select>
+  </div>
+
+  <div class="controls">
+    <label for="microphoneSelect">Microfon / intrare audio:</label>
+    <select id="microphoneSelect">
+      <option value="">Apasă „Reîncarcă microfoanele”</option>
+    </select>
+    <button id="refreshDevicesButton" type="button">
+      Reîncarcă microfoanele
+    </button>
+  </div>
+
+  <div class="controls">
+    <button id="startButton">Pornește capturarea</button>
+    <button id="stopButton" disabled>Oprește capturarea</button>
+    <button id="announceButton" disabled>Anunță piesa</button>
+    <button id="downloadButton" disabled>Descarcă ultimul anunț</button>
+  </div>
 
   <div class="box">
     <h2>Stare</h2>
@@ -61,60 +85,71 @@
   </div>
 
   <div class="box">
-    <h2>5 recomandări</h2>
+    <h2>Recomandări</h2>
     <ol id="recommendations"></ol>
   </div>
 
   <script>
+    const sourceType = document.getElementById("sourceType");
+    const microphoneSelect = document.getElementById("microphoneSelect");
+    const refreshDevicesButton =
+      document.getElementById("refreshDevicesButton");
     const startButton = document.getElementById("startButton");
     const stopButton = document.getElementById("stopButton");
     const announceButton = document.getElementById("announceButton");
+    const downloadButton = document.getElementById("downloadButton");
     const statusBox = document.getElementById("status");
     const songBox = document.getElementById("song");
-    const recommendationsList = document.getElementById("recommendations");
+    const recommendationsList =
+      document.getElementById("recommendations");
 
-    let mediaStream = null;
-    let recorder = null;
+    let audioStream = null;
     let captureTimer = null;
     let currentSong = null;
     let isRecognizing = false;
+    let isRecordingAnnouncement = false;
+    let lastAnnouncementUrl = null;
 
     function setStatus(message) {
       statusBox.textContent = message;
     }
 
-    async function startCapture() {
+    async function loadMicrophones() {
       try {
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getDisplayMedia) {
-          throw new Error(
-            "Browserul nu permite capturarea ecranului. Încearcă Chrome sau Edge."
-          );
+        // Browserul cere permisiunea ca să afișeze numele dispozitivelor.
+        const temporaryStream =
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        temporaryStream.getTracks().forEach((track) => track.stop());
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const microphones = devices.filter(
+          (device) => device.kind === "audioinput"
+        );
+
+        microphoneSelect.replaceChildren();
+
+        if (!microphones.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "Nu am găsit intrări audio";
+          microphoneSelect.appendChild(option);
+          return;
         }
 
-        mediaStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true
+        microphones.forEach((device, index) => {
+          const option = document.createElement("option");
+          option.value = device.deviceId;
+          option.textContent =
+            device.label || `Intrare audio ${index + 1}`;
+          microphoneSelect.appendChild(option);
         });
 
-        if (!mediaStream.getAudioTracks().length) {
-          mediaStream.getTracks().forEach((track) => track.stop());
-          mediaStream = null;
-          throw new Error(
-            "Nu a fost capturat sunet. Reîncearcă și activează partajarea sunetului sistemului."
-          );
-        }
-
-        startButton.disabled = true;
-        stopButton.disabled = false;
-        setStatus("Capturare pornită. Ascult piesele…");
-
-        mediaStream.getVideoTracks()[0].addEventListener("ended", stopCapture);
-
-        captureTimer = setInterval(captureClip, 15000);
-        captureClip();
+        setStatus("Microfoanele și intrările audio au fost încărcate.");
       } catch (error) {
-        setStatus("Nu am putut porni capturarea: " + error.message);
+        setStatus(
+          "Nu pot afișa microfoanele fără permisiune. Permite accesul la microfon și apasă din nou «Reîncarcă microfoanele»."
+        );
       }
     }
 
@@ -124,56 +159,131 @@
         captureTimer = null;
       }
 
-      if (mediaStream) {
-        mediaStream.getTracks().forEach((track) => track.stop());
-        mediaStream = null;
+      if (audioStream) {
+        audioStream.getTracks().forEach((track) => track.stop());
+        audioStream = null;
       }
 
-      recorder = null;
       startButton.disabled = false;
       stopButton.disabled = true;
       setStatus("Capturarea este oprită.");
     }
 
-    function captureClip() {
-      if (!mediaStream || isRecognizing) return;
+    async function startCapture() {
+      try {
+        if (sourceType.value === "system") {
+          if (!navigator.mediaDevices.getDisplayMedia) {
+            throw new Error(
+              "Browserul nu permite capturarea ecranului. Încearcă Chrome sau Edge."
+            );
+          }
 
-      const audioOnlyStream = new MediaStream(mediaStream.getAudioTracks());
+          const displayStream =
+            await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true
+            });
 
-      let mimeType = "";
-      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-        mimeType = "audio/webm;codecs=opus";
-      } else if (MediaRecorder.isTypeSupported("audio/webm")) {
-        mimeType = "audio/webm";
+          const audioTracks = displayStream.getAudioTracks();
+
+          if (!audioTracks.length) {
+            displayStream.getTracks().forEach((track) => track.stop());
+            throw new Error(
+              "Nu a fost partajat sunetul. Reîncearcă și bifează «Share system audio» sau «Partajează sunetul sistemului»."
+            );
+          }
+
+          // Folosim doar sunetul; oprim pista video.
+          displayStream.getVideoTracks().forEach((track) => track.stop());
+          audioStream = new MediaStream(audioTracks);
+        } else {
+          const deviceId = microphoneSelect.value;
+
+          const audioConstraints = deviceId
+            ? { deviceId: { exact: deviceId } }
+            : true;
+
+          audioStream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints
+          });
+        }
+
+        startButton.disabled = true;
+        stopButton.disabled = false;
+
+        setStatus(
+          sourceType.value === "system"
+            ? "Capturarea sunetului sistemului a pornit."
+            : "Capturarea microfonului / intrării audio a pornit."
+        );
+
+        captureClip();
+        captureTimer = setInterval(captureClip, 15000);
+      } catch (error) {
+        if (audioStream) {
+          audioStream.getTracks().forEach((track) => track.stop());
+          audioStream = null;
+        }
+
+        setStatus("Nu am putut porni capturarea: " + error.message);
       }
+    }
+
+    function supportedMimeType() {
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        return "audio/webm;codecs=opus";
+      }
+
+      if (MediaRecorder.isTypeSupported("audio/webm")) {
+        return "audio/webm";
+      }
+
+      return "";
+    }
+
+    function captureClip() {
+      if (
+        !audioStream ||
+        isRecognizing ||
+        isRecordingAnnouncement
+      ) {
+        return;
+      }
+
+      const mimeType = supportedMimeType();
+      let recorder;
 
       try {
         recorder = mimeType
-          ? new MediaRecorder(audioOnlyStream, { mimeType })
-          : new MediaRecorder(audioOnlyStream);
+          ? new MediaRecorder(audioStream, { mimeType })
+          : new MediaRecorder(audioStream);
       } catch (error) {
-        setStatus("Browserul nu poate înregistra sunetul: " + error.message);
+        setStatus("Nu pot înregistra sunetul: " + error.message);
         return;
       }
 
       const chunks = [];
 
       recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) chunks.push(event.data);
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
       };
 
       recorder.onstop = async () => {
         if (!chunks.length) return;
+
         const blob = new Blob(chunks, {
           type: recorder.mimeType || "audio/webm"
         });
+
         await sendAudio(blob);
       };
 
       recorder.start();
 
       setTimeout(() => {
-        if (recorder && recorder.state === "recording") {
+        if (recorder.state === "recording") {
           recorder.stop();
         }
       }, 10000);
@@ -181,8 +291,9 @@
 
     async function sendAudio(blob) {
       if (isRecognizing) return;
+
       isRecognizing = true;
-      setStatus("Trimit fragmentul audio pentru identificare…");
+      setStatus("Trimit fragmentul audio la serviciul de recunoaștere…");
 
       try {
         const formData = new FormData();
@@ -232,35 +343,44 @@
       recommendationsList.replaceChildren();
 
       if (!tracks.length) {
-        const li = document.createElement("li");
-        li.textContent = "Nu există încă recomandări. Verifică library.json.";
-        recommendationsList.appendChild(li);
+        const item = document.createElement("li");
+        item.textContent =
+          "Nu există recomandări. Adaugă piesa în library.json cu BPM și cheie Camelot.";
+        recommendationsList.appendChild(item);
         return;
       }
 
       tracks.forEach((track) => {
-        const li = document.createElement("li");
-        li.textContent =
-          `${track.title} — ${track.artist} | ` +
-          `${track.bpm} BPM | ${track.key} | ` +
-          `diferență BPM: ${track.bpmDifference} | ` +
+        const item = document.createElement("li");
+        item.textContent =
+          `${track.title} — ${track.artist} | ${track.bpm} BPM | ` +
+          `Camelot ${track.key} | diferență BPM: ${track.bpmDifference} | ` +
           `cheie: ${track.keyCompatibility}`;
-        recommendationsList.appendChild(li);
+        recommendationsList.appendChild(item);
       });
     }
 
     function announceSong() {
-      if (!currentSong) return;
+      if (!currentSong) {
+        setStatus("Mai întâi trebuie identificată o piesă.");
+        return;
+      }
+
+      if (!audioStream || !audioStream.getAudioTracks().length) {
+        setStatus("Pornește capturarea audio înainte de anunț.");
+        return;
+      }
 
       if (!("speechSynthesis" in window)) {
-        setStatus("Acest browser nu oferă Web Speech TTS.");
+        setStatus("Browserul nu oferă funcția de text-to-speech.");
         return;
       }
 
       const voices = window.speechSynthesis.getVoices();
       const romanianVoice =
-        voices.find((voice) => voice.lang.toLowerCase().startsWith("ro")) ||
-        null;
+        voices.find((voice) =>
+          voice.lang.toLowerCase().startsWith("ro")
+        ) || null;
 
       const utterance = new SpeechSynthesisUtterance(
         `Urmează ${currentSong.title}, interpretată de ${currentSong.artist}.`
@@ -269,22 +389,122 @@
       utterance.lang = "ro-RO";
       if (romanianVoice) utterance.voice = romanianVoice;
 
+      const mimeType = supportedMimeType();
+      let recorder;
+
+      try {
+        recorder = mimeType
+          ? new MediaRecorder(audioStream, { mimeType })
+          : new MediaRecorder(audioStream);
+      } catch (error) {
+        setStatus("Nu pot înregistra anunțul: " + error.message);
+        return;
+      }
+
+      const chunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        isRecordingAnnouncement = false;
+
+        if (!chunks.length) {
+          setStatus(
+            "Nu s-a înregistrat audio. Verifică intrarea audio și volumul."
+          );
+          return;
+        }
+
+        if (lastAnnouncementUrl) {
+          URL.revokeObjectURL(lastAnnouncementUrl);
+        }
+
+        const blob = new Blob(chunks, {
+          type: recorder.mimeType || "audio/webm"
+        });
+
+        lastAnnouncementUrl = URL.createObjectURL(blob);
+        downloadButton.disabled = false;
+
+        setStatus(
+          "Anunțul a fost înregistrat. Apasă «Descarcă ultimul anunț»."
+        );
+      };
+
+      utterance.onstart = () => {
+        isRecordingAnnouncement = true;
+        recorder.start();
+        setStatus("Redau și înregistrez anunțul vocal…");
+      };
+
+      utterance.onend = () => {
+        setTimeout(() => {
+          if (recorder.state === "recording") {
+            recorder.stop();
+          }
+        }, 700);
+      };
+
+      utterance.onerror = () => {
+        isRecordingAnnouncement = false;
+
+        if (recorder.state === "recording") {
+          recorder.stop();
+        }
+
+        setStatus("A apărut o eroare la redarea anunțului.");
+      };
+
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(utterance);
-
-      if (!romanianVoice) {
-        setStatus(
-          "Nu am găsit o voce română instalată. Verifică vocile și limbile disponibile în sistem."
-        );
-      }
     }
 
+    function downloadAnnouncement() {
+      if (!lastAnnouncementUrl) {
+        setStatus("Rostește un anunț înainte de a-l descărca.");
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = lastAnnouncementUrl;
+      link.download = "anunt-dj.webm";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    refreshDevicesButton.addEventListener("click", loadMicrophones);
     startButton.addEventListener("click", startCapture);
     stopButton.addEventListener("click", stopCapture);
     announceButton.addEventListener("click", announceSong);
+    downloadButton.addEventListener("click", downloadAnnouncement);
 
-    // Unele browsere încarcă vocile după deschiderea paginii.
-    window.speechSynthesis?.addEventListener("voiceschanged", () => {});
+    sourceType.addEventListener("change", () => {
+      if (audioStream) stopCapture();
+
+      microphoneSelect.disabled = sourceType.value !== "microphone";
+    });
+
+    microphoneSelect.disabled = sourceType.value !== "microphone";
+
+    navigator.mediaDevices?.addEventListener?.(
+      "devicechange",
+      loadMicrophones
+    );
+
+    window.addEventListener("beforeunload", () => {
+      if (audioStream) {
+        audioStream.getTracks().forEach((track) => track.stop());
+      }
+
+      if (lastAnnouncementUrl) {
+        URL.revokeObjectURL(lastAnnouncementUrl);
+      }
+    });
   </script>
 </body>
 </html>
